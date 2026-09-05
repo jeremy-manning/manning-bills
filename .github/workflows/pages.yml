@@ -24,25 +24,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  guard:
-    # Cheap standalone re-check of the same invariant build_static.py asserts.
-    # If live household data ever reaches the built page, fail before it is
-    # published rather than after.
+  test:
+    # Nothing is published unless the suite passes. The tests need no
+    # dependencies, so there is no install step to go stale.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Refuse to publish a page containing household data
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run the test suite
+        working-directory: source
+        run: node run_tests.js
+
+      - name: Confirm the committed page matches the source
         run: |
-          for marker in '"login"' 'passwordHash' 'AFCU Checking' 'billsReference":[{'; do
-            if grep -qF "$marker" dist_static/index.html; then
-              echo "::error::dist_static/index.html contains '$marker' — refusing to publish."
-              exit 1
-            fi
-          done
-          echo "Clean: no household data in the built page."
+          # A hand-edited or stale dist_static/index.html would ship something
+          # nobody reviewed. Rebuild and diff.
+          cp dist_static/index.html /tmp/committed.html
+          cd source && python3 build_static.py
+          if ! diff -q /tmp/committed.html ../dist_static/index.html >/dev/null; then
+            echo "::error::dist_static/index.html is not what source/ builds. Run: cd source && python3 build_static.py"
+            exit 1
+          fi
+          echo "Committed page matches the source."
 
   deploy:
-    needs: guard
+    needs: test
     runs-on: ubuntu-latest
     environment:
       name: github-pages
