@@ -56,18 +56,30 @@ chartlib_src = open('chart.umd.local.js').read()
 assert '</script' not in chartlib_src.lower(), 'chart.umd.local.js contains a literal </script sequence that would break inlining'
 skeleton = skeleton.replace(CHARTLIB_PLACEHOLDER, '<script id="chartlib">' + chartlib_src + '</script>')
 
-# Bring in supabase-js from a CDN (no CDN allowlist restriction on GitHub
-# Pages, unlike the Claude Artifact sandbox — this is why the earlier bug
-# with cdnjs required inlining Chart.js there, but is not a concern here).
-# The unversioned "@2" major-version pin is Supabase's own documented CDN
-# snippet (https://supabase.com/docs/reference/javascript/installing) — it
-# always resolves to the latest compatible v2.x build.
-SUPABASE_CDN_TAG = '<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>'
+# ---------------------------------------------------------------------------
+# supabase-js is INLINED from a vendored copy, not pulled from a CDN.
+#
+# The original build used <script src=".../@supabase/supabase-js@2">: an
+# unpinned major-version tag, no subresource integrity, fetched at page load.
+# For a page that reads and writes household financial records that means a
+# third party can change the code running against the live session at any time,
+# and the page simply breaks if the CDN is unreachable.
+#
+# supabase.umd.local.js is @supabase/supabase-js 2.115.0, fetched once from
+# jsdelivr and committed. Refresh it deliberately:
+#   curl -o supabase.umd.local.js \
+#     https://cdn.jsdelivr.net/npm/@supabase/supabase-js@<version>/dist/umd/supabase.js
+# and re-run this script. Same pattern already used for chart.umd.local.js.
+# ---------------------------------------------------------------------------
+supabase_src = open('supabase.umd.local.js').read()
+assert '</script' not in supabase_src.lower(), 'supabase.umd.local.js contains a literal </script sequence that would break inlining'
+assert 'createClient' in supabase_src, 'supabase.umd.local.js does not look like the supabase-js UMD bundle'
+SUPABASE_TAG = '<script id="supabaselib">' + supabase_src + '</script>'
 CONFIG_TAG = '<script src="supabase-config.js"></script>'
 
 SCRIPT_OPEN = '<script id="appscript">'
 assert skeleton.count(SCRIPT_OPEN) == 1, 'expected exactly one <script id="appscript"> tag in skeleton.html'
-skeleton = skeleton.replace(SCRIPT_OPEN, SUPABASE_CDN_TAG + '\n' + CONFIG_TAG + '\n' + SCRIPT_OPEN, 1)
+skeleton = skeleton.replace(SCRIPT_OPEN, SUPABASE_TAG + '\n' + CONFIG_TAG + '\n' + SCRIPT_OPEN, 1)
 
 open_idx = skeleton.index(SCRIPT_OPEN) + len(SCRIPT_OPEN)
 close_idx = skeleton.rfind('</script>')
@@ -96,12 +108,17 @@ final_html = (
 # Sanity checks mirroring build.py's.
 assert 'SUPABASE_URL' in final_html and 'SUPABASE_ANON_KEY' not in core  # config constants come from the separate file, not baked in
 real_script_opens = len(re.findall(r'<script[ >]', final_html, re.IGNORECASE))
-# chartlib + supabase-js CDN + supabase-config.js + appscript = 4
+# chartlib + supabase-js (inlined) + supabase-config.js + appscript = 4
 assert real_script_opens == 4, "expected exactly 4 <script> tags, found " + str(real_script_opens)
 
 # Data-leak guard. These strings exist only in the real household ledger; if
 # any of them appears in the built page, something has inlined live data again.
 LEAK_MARKERS = ['"login"', 'passwordHash', 'AFCU Checking', 'billsReference":[{']
+# No third-party code may be fetched at runtime. Google Fonts is a <link>, not
+# a script, and degrades to system fonts if blocked; script sources must be none.
+external_scripts = re.findall(r'<script[^>]*\ssrc="(https?:)?//[^"]*"', final_html, re.IGNORECASE)
+assert not external_scripts, "page loads script(s) from outside itself: " + repr(external_scripts)
+
 for marker in LEAK_MARKERS:
     assert marker not in final_html, (
         "SECURITY: built page contains %r — live household data must never be "
