@@ -16,3 +16,9 @@ dist_static/supabase_setup.sql
 node_modules/
 .DS_Store
 __pycache__/
+
+# Original Excel-import seed snapshot. seed_refs.json holds the 14 banking
+# usernames; seed_months.json holds real account balances. Superseded by the
+# Supabase-hosted ledger and never needed to build the page.
+source/seed_refs.json
+source/seed_months.json
