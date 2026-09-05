@@ -32,9 +32,21 @@ import json, re
 # ones. The password hash/salt are deliberately excluded here (this constant
 # ships in public page source); the real password lives only in the
 # Supabase-seeded row.
-live = json.load(open('current_state.json'))
-seed = {"years": live["years"], "billsReference": live["billsReference"]}
-seed_js = "\n/* ===== SEED (current household data as of the GitHub/Supabase migration; passwords excluded) ===== */\nconst SEED_DATA = " + json.dumps(seed, separators=(',', ':')) + ";\n"
+# ---------------------------------------------------------------------------
+# SEED DATA: deliberately EMPTY.
+#
+# The original build inlined the live household ledger here, straight from
+# current_state.json, as a "no backend yet" fallback. That put every account
+# balance and all 14 banking usernames into dist_static/index.html — the file
+# the deploy instructions tell you to upload to GitHub Pages. No amount of
+# database access control helps when the page itself carries the data.
+#
+# Real data now comes from Supabase at runtime, only after a signed-in,
+# allowlisted user is present. An empty seed is what a brand-new ledger should
+# look like, and it is the only thing safe to ship in public page source.
+# ---------------------------------------------------------------------------
+seed = {"years": {}, "billsReference": []}
+seed_js = "\n/* ===== SEED (empty on purpose — real data comes from Supabase after sign-in) ===== */\nconst SEED_DATA = " + json.dumps(seed, separators=(',', ':')) + ";\n"
 
 skeleton = open('skeleton.html').read()
 
@@ -87,6 +99,14 @@ real_script_opens = len(re.findall(r'<script[ >]', final_html, re.IGNORECASE))
 # chartlib + supabase-js CDN + supabase-config.js + appscript = 4
 assert real_script_opens == 4, "expected exactly 4 <script> tags, found " + str(real_script_opens)
 
+# Data-leak guard. These strings exist only in the real household ledger; if
+# any of them appears in the built page, something has inlined live data again.
+LEAK_MARKERS = ['"login"', 'passwordHash', 'AFCU Checking', 'billsReference":[{']
+for marker in LEAK_MARKERS:
+    assert marker not in final_html, (
+        "SECURITY: built page contains %r — live household data must never be "
+        "inlined into index.html. See the SEED DATA note above." % marker)
+
 import os
 os.makedirs('dist_static', exist_ok=True)
 open('dist_static/index.html', 'w').write(final_html)
@@ -95,102 +115,15 @@ shutil.copyfile('supabase-config.js', 'dist_static/supabase-config.js')
 print("built dist_static/index.html:", len(final_html.encode('utf-8')), "bytes")
 print("copied dist_static/supabase-config.js")
 
-# ----------------------------------------------------------------------------
-# supabase_setup.sql: creates the table, RLS policies, and Realtime
-# publication membership, then seeds the table with the real household data
-# (the same `live` dict used for the JS fallback above) so the very first
-# load of the deployed site already has everything that's on the site today.
-# ----------------------------------------------------------------------------
-data_json = json.dumps(live, separators=(',', ':'), ensure_ascii=True)
-data_sql_literal = data_json.replace("'", "''")
-
-sql = """-- ============================================================================
--- Manning Household Bills — Supabase setup
---
--- Run this ONCE in your Supabase project's SQL Editor (Dashboard -> SQL
--- Editor -> New query -> paste all of this -> Run) right after creating the
--- project, before you fill in supabase-config.js. It:
---   1. Creates the one table the site needs (a single JSON blob per "row",
---      really just one row for the whole household ledger).
---   2. Turns on Row Level Security and adds policies allowing the site's
---      public "anon" key to read and write that one row.
---   3. Turns on Realtime for the table, so when one of you saves a change,
---      the other person's already-open page updates live.
---   4. Seeds the table with the actual bills data that is on the site
---      today (as of the GitHub/Supabase migration), including the current
---      shared password, so you don't start over from a blank ledger.
---
--- Safe to run more than once by accident -- every step below either
--- replaces itself cleanly or checks first, so re-running this script does
--- not duplicate data or error out.
---
--- SECURITY NOTE (read this before you rely on it):
--- The policies below allow ANYONE who has your site's URL and the public
--- "anon" key (which is not a secret -- it is embedded in the page's own
--- source code, same as it would be for any client-only app like this one)
--- to read and write this table. That matches the site's existing security
--- model exactly: today, viewing the bills has never required a password,
--- and editing is only gated by a password check that happens in the
--- browser, not on a server. Moving to Supabase does not weaken or
--- strengthen that -- it is the same level of protection as before, just
--- self-hosted instead of running on Claude's platform. If you want real
--- server-enforced access control later, that would mean adding Supabase
--- Auth and rewriting these policies to require a signed-in user -- a bigger
--- change than this migration, and not something this script sets up.
--- ============================================================================
-
-create table if not exists public.bills_state (
-  id text primary key,
-  data jsonb not null,
-  updated_at timestamptz not null default now()
-);
-
-alter table public.bills_state enable row level security;
-
-drop policy if exists "public read" on public.bills_state;
-create policy "public read"
-  on public.bills_state for select
-  to anon
-  using (true);
-
-drop policy if exists "public insert" on public.bills_state;
-create policy "public insert"
-  on public.bills_state for insert
-  to anon
-  with check (true);
-
-drop policy if exists "public update" on public.bills_state;
-create policy "public update"
-  on public.bills_state for update
-  to anon
-  using (true)
-  with check (true);
-
--- Turns on live "postgres_changes" events for this table so the Realtime
--- subscription in the app (setupRealtime() in app_persist_static.js) gets
--- pushed the other person's saves without a page reload. Guarded so running
--- this script twice does not error the second time.
-do $$
-begin
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'bills_state'
-  ) then
-    alter publication supabase_realtime add table public.bills_state;
-  end if;
-end $$;
-
--- Seed the table with the real household data as it exists today, so the
--- very first load of the deployed site already shows everything that was
--- on the Claude-hosted version -- same months, same balances, same shared
--- password (you and your partner keep using the password you already set;
--- it does not reset). Safe to re-run: if the "main" row already exists
--- (e.g. you already started using the live site), this does nothing rather
--- than overwriting your newer edits.
-insert into public.bills_state (id, data, updated_at)
-values ('main', '""" + data_sql_literal + """'::jsonb, now())
-on conflict (id) do nothing;
-"""
-
-open('dist_static/supabase_setup.sql', 'w').write(sql)
-print("wrote dist_static/supabase_setup.sql:", len(sql), "bytes")
+# ---------------------------------------------------------------------------
+# The original build also emitted dist_static/supabase_setup.sql here: a script
+# that created public.bills_state with `to anon using (true)` policies for
+# select AND update, and seeded it with the full ledger including the banking
+# usernames. Both the access model and the data handling have been replaced.
+#
+# The database is now provisioned from the reviewed, ordered migrations in
+# ../supabase/ (01 hardening, 02 schema, 03 seed), which are applied once and
+# are not a build artifact. Nothing about the database changes when you rebuild
+# this page, so there is nothing to regenerate.
+# ---------------------------------------------------------------------------
+print("done. dist_static/ is ready to deploy.")

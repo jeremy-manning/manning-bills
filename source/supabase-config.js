@@ -1,21 +1,18 @@
 /* ============================================================================
-   SUPABASE CONFIGURATION — edit this file only. Never touch index.html.
+   SUPABASE CONFIGURATION — the only file you edit to point this page at a
+   database. Never edit index.html.
 
-   1. Create a free project at https://supabase.com
-   2. In the Supabase dashboard, run the SQL in supabase_setup.sql once
-      (SQL Editor -> New query -> paste -> Run). This creates the table
-      that holds the shared bills data and loads in the data that is
-      already on the site today.
-   3. In the dashboard go to Settings -> API and copy:
-        - "Project URL"      -> paste below as SUPABASE_URL
-        - "anon public" key  -> paste below as SUPABASE_ANON_KEY
-   4. Save this file and re-upload it (or just edit it directly in your
-      GitHub repo). No rebuild step, no other file needs to change.
-
-   You do NOT need to touch SUPABASE_TABLE or SUPABASE_ROW_ID unless you
-   changed the table/row name in supabase_setup.sql.
+   These values are meant to be public. The publishable key identifies the
+   project; it grants nothing on its own. Every row in this schema is behind
+   Row Level Security that requires a signed-in user whose address is listed
+   in bills.allowed_emails, so a visitor holding this key and the URL still
+   sees nothing.
    ============================================================================ */
-const SUPABASE_URL = 'YOUR_SUPABASE_PROJECT_URL';
-const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
-const SUPABASE_TABLE = 'bills_state';
+const SUPABASE_URL    = 'https://tauwfxwsfwutzxlfjkhj.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_mioLyVF2eF_2NuEkWa8gkQ_3CVbB2DK';
+
+/* Where the ledger lives. These match supabase/02_bills_schema.sql — leave
+   them alone unless that migration changes. */
+const SUPABASE_SCHEMA = 'bills';
+const SUPABASE_TABLE  = 'state';
 const SUPABASE_ROW_ID = 'main';

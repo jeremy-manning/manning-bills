@@ -286,9 +286,10 @@ function onImportFile(e){
     confirmDanger('Import backup', 'This overwrites the current shared bills tracker for everyone with the contents of this file. Your current data is kept in a backup snapshot. Continue?', ()=>{
       const priorBackups = STATE.backups || [];
       const priorSnapshot = deepClone(STATE);
-      const keepAuth = STATE.auth;
       STATE = json;
-      STATE.auth = keepAuth;
+      // Old exports carry an `auth` block with the retired password hash.
+      // Drop it rather than syncing a dead credential back into the ledger.
+      delete STATE.auth;
       STATE.backups = priorBackups;
       rotateBackup(priorSnapshot);
       let max=0; const scan=(v)=>{ if(v&&typeof v==='object'){ if(typeof v.id==='string'){ const mch=/(\d+)$/.exec(v.id); if(mch) max=Math.max(max,parseInt(mch[1],10)); } for(const k in v) scan(v[k]); } };
@@ -309,22 +310,21 @@ function renderReferenceHTML(){
     <td>${UI.unlocked? `<input class="textfield" style="width:90px;" value="${escAttr(r.due||'')}" onblur="renameReference('${r.id}','due',this.value)">` : esc(r.due||'—')}</td>
     <td style="text-align:left;">${UI.unlocked? `<input class="textfield" style="width:100%;min-width:220px;" value="${escAttr(r.link||'')}" onblur="renameReference('${r.id}','link',this.value)">` :
         (r.link && /^https?:\/\//i.test(r.link) ? `<a class="reflink" target="_blank" rel="noopener" href="${escAttr(r.link)}">${esc(r.link)}</a>` : esc(r.link||'—'))}</td>
-    <td style="text-align:left;">${UI.unlocked? `<input class="textfield" style="width:100%;min-width:200px;" value="${escAttr(r.login||'')}" onblur="renameReference('${r.id}','login',this.value)">` : esc(r.login||'—')}</td>
     <td>${UI.unlocked? `<button class="rowdel" style="opacity:.6" onclick="onDeleteReference('${r.id}')">🗑</button>`:''}</td>
   </tr>`).join('');
   return `<div class="card">
-    <div class="card-head"><div><h2>Bills Reference</h2><div class="desc">Payment links and logins for reference — passwords are never stored here.</div></div>
+    <div class="card-head"><div><h2>Bills Reference</h2><div class="desc">Payment links for reference. Usernames and passwords belong in your password manager, not here.</div></div>
       <div class="spacer"></div>${UI.unlocked? `<button class="btn small" onclick="addReference()">+ Biller</button>`:''}
     </div>
     <div class="card-body"><div class="tablewrap"><table class="ledger">
-      <thead><tr><th style="text-align:left;">Biller</th><th>Due</th><th style="text-align:left;">Payment link</th><th style="text-align:left;">Login</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="5" class="emptynote">No billers listed yet.</td></tr>`}</tbody>
+      <thead><tr><th style="text-align:left;">Biller</th><th>Due</th><th style="text-align:left;">Payment link</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="4" class="emptynote">No billers listed yet.</td></tr>`}</tbody>
     </table></div></div>
   </div>`;
 }
 function addReference(){
   if(!requireUnlock()) return;
-  STATE.billsReference.push({id:nextId('ref'), name:'New biller', due:null, link:null, login:null});
+  STATE.billsReference.push({id:nextId('ref'), name:'New biller', due:null, link:null});
   document.getElementById('main').innerHTML = renderReferenceHTML();
   scheduleSave();
 }
@@ -470,8 +470,12 @@ function warnBeforeUnload(e){
 /* ===== INIT ===== */
 async function init(){
   await initCapabilities();
-  await loadInitialState();
-  UI.unlocked = isLocallyUnlocked() && !!(STATE.auth && STATE.auth.passwordHash);
+  // loadInitialState() returns false when it has already painted the sign-in
+  // gate over the page. Nothing below should run in that case — there is no
+  // STATE to render, and that is the point: no session, no ledger.
+  const ready = await loadInitialState();
+  if(!ready) return;
+  UI.unlocked = isLocallyUnlocked();
   UI.lastSavedAt = STATE.savedAt;
   renderAll();
   window.addEventListener('beforeunload', warnBeforeUnload);

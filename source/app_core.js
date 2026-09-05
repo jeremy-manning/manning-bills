@@ -22,7 +22,6 @@ function freshState(){
     schema: SCHEMA_VERSION,
     savedAt: null,
     savedSeq: 0,
-    auth: { passwordHash: null, salt: null },
     years: {},
     billsReference: [],
     backups: [],
