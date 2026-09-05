@@ -1,0 +1,57 @@
+# Publishes dist_static/ to GitHub Pages on every push to main.
+#
+# Deploying via Actions rather than "deploy from a branch" because the branch
+# option can only serve the repo root or /docs, and the site is built into
+# dist_static/. This keeps the build output where build_static.py puts it.
+#
+# Nothing here needs secrets: the published page contains no credentials, and
+# the Supabase publishable key in supabase-config.js is meant to be public.
+name: Deploy site to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    # Cheap standalone re-check of the same invariant build_static.py asserts.
+    # If live household data ever reaches the built page, fail before it is
+    # published rather than after.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse to publish a page containing household data
+        run: |
+          for marker in '"login"' 'passwordHash' 'AFCU Checking' 'billsReference":[{'; do
+            if grep -qF "$marker" dist_static/index.html; then
+              echo "::error::dist_static/index.html contains '$marker' — refusing to publish."
+              exit 1
+            fi
+          done
+          echo "Clean: no household data in the built page."
+
+  deploy:
+    needs: guard
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist_static
+      - id: deployment
+        uses: actions/deploy-pages@v4
