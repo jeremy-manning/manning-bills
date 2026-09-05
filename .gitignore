@@ -15,3 +15,4 @@ dist_static/supabase_setup.sql
 
 node_modules/
 .DS_Store
+__pycache__/
