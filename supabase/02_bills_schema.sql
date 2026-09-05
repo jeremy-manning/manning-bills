@@ -65,9 +65,16 @@ create or replace function bills.is_member()
 as $$
   select exists (
     select 1 from bills.allowed_emails
-    where lower(email) = lower(nullif(current_setting('request.jwt.claims', true)::jsonb ->> 'email', ''))
+    where lower(email) = lower(
+      nullif(
+        nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'email',
+        '')
+    )
   );
 $$;
+-- Note the double nullif: guard the empty string BEFORE casting to jsonb.
+-- Casting first means ''::jsonb raises "invalid input syntax for type json"
+-- rather than denying cleanly, and an error is the wrong way to fail closed.
 
 -- ---------------------------------------------------------------------------
 -- Bump version on every save (BEFORE), then record history (AFTER).
