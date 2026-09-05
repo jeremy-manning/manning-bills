@@ -118,18 +118,27 @@ function renderAuthGate(mode){
   const who = signedInEmail();
   let inner;
   if(mode === 'not-allowed'){
-    inner = `<h1>Not authorised</h1>
+    // Primary action is RETRY, not sign out. Access is granted by editing the
+    // allowlist server-side, which can happen while this page sits open — and
+    // signing out throws away a valid session that is about to become useful,
+    // forcing another sign-in email against a tight rate limit. Sign out is
+    // deliberately the secondary, quieter action.
+    inner = `<h1>Not authorised yet</h1>
       <p>You are signed in as <strong>${esc(who)}</strong>, but that address is not on
          the access list for this ledger.</p>
-      <p class="authnote">If this is wrong, the list is managed in Supabase
-         (<code>bills.allowed_emails</code>).</p>
-      <button class="btn" id="authsignout">Sign out</button>`;
+      <p>If someone is adding you right now, stay on this page and press
+         <strong>Check again</strong> — you do not need to sign in a second time.</p>
+      <button class="btn primary" id="authretrycheck">Check again</button>
+      <p class="authnote">Access is managed in Supabase
+         (<code>bills.allowed_emails</code>). Wrong account?
+         <a href="#" id="authsignout">Sign out</a>.</p>`;
   } else if(mode === 'sent'){
     inner = `<h1>Check your email</h1>
       <p>A sign-in link is on its way. Open it on this device and you will land
          back here, signed in.</p>
-      <p class="authnote">The link is single-use and expires shortly. If nothing
-         arrives in a few minutes, check spam, then try again.</p>
+      <p class="authnote">Open the most recent link: requesting another one
+         invalidates the previous email. If nothing arrives in a few minutes,
+         check spam before requesting again — sending is rate limited.</p>
       <button class="btn" id="authretry">Use a different address</button>`;
   } else if(mode === 'unconfigured'){
     inner = `<h1>Not configured yet</h1>
@@ -166,7 +175,18 @@ function renderAuthGate(mode){
     };
   }
   const out = document.getElementById('authsignout');
-  if(out) out.onclick = signOut;
+  if(out) out.onclick = (e)=>{ if(e) e.preventDefault(); signOut(); };
+
+  const recheck = document.getElementById('authretrycheck');
+  if(recheck){
+    recheck.onclick = async ()=>{
+      recheck.disabled = true; recheck.textContent = 'Checking…';
+      await refreshSession();
+      if(IS_MEMBER){ init(); return; }          // access granted — load the ledger
+      recheck.disabled = false; recheck.textContent = 'Check again';
+      toast('Still not on the access list.');
+    };
+  }
   const retry = document.getElementById('authretry');
   if(retry) retry.onclick = ()=> renderAuthGate('signin');
 }
