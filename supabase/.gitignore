@@ -1,0 +1,6 @@
+# Never commit: contains banking usernames
+EXTRACTED-LOGINS.txt
+# Never commit: contains the full household ledger
+seed_state.json
+03_seed.sql
+chunks/

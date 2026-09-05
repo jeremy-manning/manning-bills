@@ -1,0 +1,17 @@
+# ---------------------------------------------------------------------------
+# Household financial data — must never reach a public remote.
+# The deployable site (dist_static/index.html + supabase-config.js) carries no
+# data of its own; everything comes from Supabase at runtime, behind auth.
+# ---------------------------------------------------------------------------
+source/current_state.json
+supabase/seed_state.json
+supabase/03_seed.sql
+supabase/EXTRACTED-LOGINS.txt
+supabase/chunks/
+
+# The original handoff bundle's setup script embeds the full ledger AND the
+# 14 banking usernames (twice). Superseded by supabase/01..03.
+dist_static/supabase_setup.sql
+
+node_modules/
+.DS_Store
