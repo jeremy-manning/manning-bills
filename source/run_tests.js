@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Runs the whole suite. No dependencies, no npm install: `node run_tests.js`.
 const {execFileSync} = require('child_process');
-const files = ['test_access.js','test_saving.js','test_build.js'];
+const files = ['test_access.js','test_saving.js','test_editing.js','test_build.js'];
 let failed = 0;
 for(const f of files){
   console.log('\n' + '='.repeat(60) + '\n' + f + '\n' + '='.repeat(60));

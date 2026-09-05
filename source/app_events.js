@@ -17,11 +17,9 @@ function onMoneyInput(el){
   if(v!=='' && isNaN(num)) return;
   setMoneyValue(el.dataset.kind, el.dataset.owner, el.dataset.week, num);
   patchTotals(UI.year, UI.month);
-  // Reset the save debounce on every keystroke (not just on blur) — without
-  // this, a save scheduled by leaving an earlier field could fire while
-  // you're still actively typing a new one, since nothing was resetting its
-  // timer. See the comment on SAVE_DEBOUNCE_MS in app_persist.js.
-  scheduleSave();
+  // Only mark dirty here. onMoneyBlur() schedules the actual save when you
+  // leave the cell, so the save indicator does not cycle while you type.
+  markDirty();
 }
 function onMoneyBlur(el){
   if(!UI.unlocked) return;
@@ -478,6 +476,21 @@ async function init(){
   UI.unlocked = isLocallyUnlocked();
   UI.lastSavedAt = STATE.savedAt;
   renderAll();
+  // A focused <input type="number"> treats the scroll wheel as increment /
+  // decrement, so scrolling the page with the pointer over a cell you just
+  // typed into silently rewrites the amount — on a bills ledger that is a
+  // wrong number nobody notices. Blur the field instead: the value stays put,
+  // it commits normally through onMoneyBlur, and the page scrolls as expected.
+  //
+  // Passive listener: we never call preventDefault, because suppressing the
+  // wheel here would make the page feel dead over the table.
+  document.addEventListener('wheel', (e)=>{
+    const el = document.activeElement;
+    if(el && el.type === 'number' && (el === e.target || el.contains(e.target))){
+      el.blur();
+    }
+  }, {passive:true});
+
   window.addEventListener('beforeunload', warnBeforeUnload);
   document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ stashPendingEdit(); flushPendingSave(); } });
   restorePendingEdit();

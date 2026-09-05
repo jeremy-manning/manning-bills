@@ -135,7 +135,11 @@ button:focus-visible, input:focus-visible, a:focus-visible, [tabindex]:focus-vis
 .pill.locked{color:var(--ink-soft);}
 .iconbtn{border:1px solid var(--line); background:var(--surface); border-radius:8px; padding:7px 10px; cursor:pointer; color:var(--ink-soft); font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:6px;}
 .iconbtn:hover{border-color:var(--accent); color:var(--accent-ink);}
-.savestate{font-size:11.5px; font-weight:600; color:var(--ink-muted); min-width:0;}
+/* Fixed width: the text cycles between 'Saving…', 'Saved' and 'Unsaved
+   changes', and as the first flex child in .lockbar any width change
+   shifted every control after it. Reserve room for the longest string. */
+.savestate{font-size:11.5px; font-weight:600; color:var(--ink-muted);
+  display:inline-block; min-width:15ch; text-align:left; white-space:nowrap;}
 .savestate.saving{color:var(--gold);}
 .savestate.dirty{color:var(--warn);}
 .savestate.ok{color:var(--good);}

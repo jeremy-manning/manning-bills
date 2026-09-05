@@ -102,13 +102,13 @@ function renderAccountsCardHTML(y,m){
         <button class="starbtn ${a.primary?'on':''}" title="Primary account" onclick="toggleAccountPrimary('${a.id}')">${a.primary?'★':'☆'}</button>
         <button class="flagbtn ${a.vacation?'on':''}" title="Vacation account" onclick="toggleAccountVacation('${a.id}')">✈</button>
         ${UI.unlocked
-          ? `<input class="namefield" value="${escAttr(a.name)}" oninput="scheduleSave()" onblur="renameAccount('${a.id}', 'name', this.value)">`
+          ? `<input class="namefield" value="${escAttr(a.name)}" oninput="markDirty()" onblur="renameAccount('${a.id}', 'name', this.value)">`
           : `<span>${esc(a.name)}</span>`}
         ${UI.unlocked ? `<button class="rowdel" title="Delete account" onclick="onDeleteAccount('${a.id}')">🗑</button>`:''}
       </td>
       ${weeks.map(w=> `<td class="weekcol ${w.id===curWeekId?'current':''}">` + moneyCellHTML('acct', a.id, w.id, a.balances[w.id]) + `</td>`).join('')}
       <td>${UI.unlocked
-          ? `<input class="textfield" style="width:160px;" value="${escAttr(a.note||'')}" oninput="scheduleSave()" onblur="renameAccount('${a.id}', 'note', this.value)">`
+          ? `<input class="textfield" style="width:160px;" value="${escAttr(a.note||'')}" oninput="markDirty()" onblur="renameAccount('${a.id}', 'note', this.value)">`
           : `<span style="color:var(--ink-soft);">${esc(a.note||'')}</span>`}</td>
     </tr>`;
   }).join('');
@@ -138,21 +138,21 @@ function renderBillsCardHTML(y,m){
   let body = '';
   mo.groups.forEach(g=>{
     body += `<tr class="grouphead"><td class="rowname">
-        ${UI.unlocked ? `<input class="namefield" value="${escAttr(g.name)}" oninput="scheduleSave()" onblur="renameGroup('${g.id}', this.value)">` : esc(g.name)}
+        ${UI.unlocked ? `<input class="namefield" value="${escAttr(g.name)}" oninput="markDirty()" onblur="renameGroup('${g.id}', this.value)">` : esc(g.name)}
         ${UI.unlocked ? `<button class="rowdel" title="Delete group" onclick="onDeleteGroup('${g.id}')">🗑</button>`:''}
       </td><td></td><td></td>${weeks.map(()=>'<td></td>').join('')}<td></td><td></td></tr>`;
     g.items.forEach(it=>{
       body += `<tr>
         <td class="rowname">
           <button class="flagbtn ${it.vacation?'on':''}" title="Flag as vacation spending" onclick="toggleItemVacation('${it.id}')">✈</button>
-          ${UI.unlocked ? `<input class="namefield" value="${escAttr(it.name)}" oninput="scheduleSave()" onblur="renameItem('${it.id}','name', this.value)">` : `<span>${esc(it.name)}</span>`}
+          ${UI.unlocked ? `<input class="namefield" value="${escAttr(it.name)}" oninput="markDirty()" onblur="renameItem('${it.id}','name', this.value)">` : `<span>${esc(it.name)}</span>`}
           ${UI.unlocked ? `<button class="rowdel" title="Delete bill" onclick="onDeleteItem('${it.id}')">🗑</button>`:''}
         </td>
-        <td>${UI.unlocked ? `<input class="textfield" style="width:92px;" value="${escAttr(it.due||'')}" oninput="scheduleSave()" onblur="renameItem('${it.id}','due', this.value)">` : esc(it.due||'—')}</td>
-        <td>${UI.unlocked ? `<input class="textfield" value="${escAttr(it.budget===null||it.budget===undefined?'':it.budget)}" oninput="scheduleSave()" onblur="renameItem('${it.id}','budget', this.value)">` : esc(it.budget||'—')}</td>
+        <td>${UI.unlocked ? `<input class="textfield" style="width:92px;" value="${escAttr(it.due||'')}" oninput="markDirty()" onblur="renameItem('${it.id}','due', this.value)">` : esc(it.due||'—')}</td>
+        <td>${UI.unlocked ? `<input class="textfield" value="${escAttr(it.budget===null||it.budget===undefined?'':it.budget)}" oninput="markDirty()" onblur="renameItem('${it.id}','budget', this.value)">` : esc(it.budget||'—')}</td>
         ${weeks.map(w=> `<td class="weekcol ${w.id===curWeekId?'current':''}">` + moneyCellHTML('item', it.id, w.id, it.weekly[w.id]) + `</td>`).join('')}
         <td id="itot-${it.id}" class="num">${fmtMoney(itemMonthlyTotal(it,weeks))}</td>
-        <td>${UI.unlocked ? `<input class="textfield" style="width:120px;" value="${escAttr(it.notes||'')}" oninput="scheduleSave()" onblur="renameItem('${it.id}','notes', this.value)">` : `<span style="color:var(--ink-soft);">${esc(it.notes||'')}</span>`}</td>
+        <td>${UI.unlocked ? `<input class="textfield" style="width:120px;" value="${escAttr(it.notes||'')}" oninput="markDirty()" onblur="renameItem('${it.id}','notes', this.value)">` : `<span style="color:var(--ink-soft);">${esc(it.notes||'')}</span>`}</td>
       </tr>`;
     });
     body += `<tr class="subtotal"><td>${esc(g.name)} total</td><td></td><td></td>

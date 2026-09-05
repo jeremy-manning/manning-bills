@@ -299,6 +299,25 @@ function scheduleSave(immediate){
   if(immediate){ doSave(); return; }
   saveTimer = setTimeout(doSave, SAVE_DEBOUNCE_MS);
 }
+/* Mark the ledger as having unsaved edits WITHOUT scheduling a write.
+ *
+ * Typing used to call scheduleSave() on every keystroke. The 3-second debounce
+ * would then elapse mid-field, so the indicator cycled
+ * "Unsaved changes" -> "Saving..." -> "Saved" -> "Unsaved changes" while the
+ * cursor never left the box, and each change of that text nudged the toolbar
+ * beside it. Keystrokes now only mark state dirty; the actual write is
+ * scheduled when the field is left (blur), which is also when the value is
+ * committed for text fields anyway.
+ *
+ * Dirty state still matters on its own: beforeunload and visibilitychange both
+ * consult UI.dirty, so a tab closed mid-edit still flushes.
+ */
+function markDirty(){
+  editSeq++;
+  UI.dirty = true;
+  renderSaveIndicator();
+}
+
 function flushPendingSave(){
   if(!UI.dirty) return;
   if(saveTimer) clearTimeout(saveTimer);

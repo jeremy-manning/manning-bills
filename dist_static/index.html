@@ -137,7 +137,11 @@ button:focus-visible, input:focus-visible, a:focus-visible, [tabindex]:focus-vis
 .pill.locked{color:var(--ink-soft);}
 .iconbtn{border:1px solid var(--line); background:var(--surface); border-radius:8px; padding:7px 10px; cursor:pointer; color:var(--ink-soft); font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:6px;}
 .iconbtn:hover{border-color:var(--accent); color:var(--accent-ink);}
-.savestate{font-size:11.5px; font-weight:600; color:var(--ink-muted); min-width:0;}
+/* Fixed width: the text cycles between 'Saving…', 'Saved' and 'Unsaved
+   changes', and as the first flex child in .lockbar any width change
+   shifted every control after it. Reserve room for the longest string. */
+.savestate{font-size:11.5px; font-weight:600; color:var(--ink-muted);
+  display:inline-block; min-width:15ch; text-align:left; white-space:nowrap;}
 .savestate.saving{color:var(--gold);}
 .savestate.dirty{color:var(--warn);}
 .savestate.ok{color:var(--good);}
@@ -858,6 +862,25 @@ function scheduleSave(immediate){
   if(immediate){ doSave(); return; }
   saveTimer = setTimeout(doSave, SAVE_DEBOUNCE_MS);
 }
+/* Mark the ledger as having unsaved edits WITHOUT scheduling a write.
+ *
+ * Typing used to call scheduleSave() on every keystroke. The 3-second debounce
+ * would then elapse mid-field, so the indicator cycled
+ * "Unsaved changes" -> "Saving..." -> "Saved" -> "Unsaved changes" while the
+ * cursor never left the box, and each change of that text nudged the toolbar
+ * beside it. Keystrokes now only mark state dirty; the actual write is
+ * scheduled when the field is left (blur), which is also when the value is
+ * committed for text fields anyway.
+ *
+ * Dirty state still matters on its own: beforeunload and visibilitychange both
+ * consult UI.dirty, so a tab closed mid-edit still flushes.
+ */
+function markDirty(){
+  editSeq++;
+  UI.dirty = true;
+  renderSaveIndicator();
+}
+
 function flushPendingSave(){
   if(!UI.dirty) return;
   if(saveTimer) clearTimeout(saveTimer);
@@ -1178,13 +1201,13 @@ function renderAccountsCardHTML(y,m){
         <button class="starbtn ${a.primary?'on':''}" title="Primary account" onclick="toggleAccountPrimary('${a.id}')">${a.primary?'★':'☆'}</button>
         <button class="flagbtn ${a.vacation?'on':''}" title="Vacation account" onclick="toggleAccountVacation('${a.id}')">✈</button>
         ${UI.unlocked
-          ? `<input class="namefield" value="${escAttr(a.name)}" oninput="scheduleSave()" onblur="renameAccount('${a.id}', 'name', this.value)">`
+          ? `<input class="namefield" value="${escAttr(a.name)}" oninput="markDirty()" onblur="renameAccount('${a.id}', 'name', this.value)">`
           : `<span>${esc(a.name)}</span>`}
         ${UI.unlocked ? `<button class="rowdel" title="Delete account" onclick="onDeleteAccount('${a.id}')">🗑</button>`:''}
       </td>
       ${weeks.map(w=> `<td class="weekcol ${w.id===curWeekId?'current':''}">` + moneyCellHTML('acct', a.id, w.id, a.balances[w.id]) + `</td>`).join('')}
       <td>${UI.unlocked
-          ? `<input class="textfield" style="width:160px;" value="${escAttr(a.note||'')}" oninput="scheduleSave()" onblur="renameAccount('${a.id}', 'note', this.value)">`
+          ? `<input class="textfield" style="width:160px;" value="${escAttr(a.note||'')}" oninput="markDirty()" onblur="renameAccount('${a.id}', 'note', this.value)">`
           : `<span style="color:var(--ink-soft);">${esc(a.note||'')}</span>`}</td>
     </tr>`;
   }).join('');
@@ -1214,21 +1237,21 @@ function renderBillsCardHTML(y,m){
   let body = '';
   mo.groups.forEach(g=>{
     body += `<tr class="grouphead"><td class="rowname">
-        ${UI.unlocked ? `<input class="namefield" value="${escAttr(g.name)}" oninput="scheduleSave()" onblur="renameGroup('${g.id}', this.value)">` : esc(g.name)}
+        ${UI.unlocked ? `<input class="namefield" value="${escAttr(g.name)}" oninput="markDirty()" onblur="renameGroup('${g.id}', this.value)">` : esc(g.name)}
         ${UI.unlocked ? `<button class="rowdel" title="Delete group" onclick="onDeleteGroup('${g.id}')">🗑</button>`:''}
       </td><td></td><td></td>${weeks.map(()=>'<td></td>').join('')}<td></td><td></td></tr>`;
     g.items.forEach(it=>{
       body += `<tr>
         <td class="rowname">
           <button class="flagbtn ${it.vacation?'on':''}" title="Flag as vacation spending" onclick="toggleItemVacation('${it.id}')">✈</button>
-          ${UI.unlocked ? `<input class="namefield" value="${escAttr(it.name)}" oninput="scheduleSave()" onblur="renameItem('${it.id}','name', this.value)">` : `<span>${esc(it.name)}</span>`}
+          ${UI.unlocked ? `<input class="namefield" value="${escAttr(it.name)}" oninput="markDirty()" onblur="renameItem('${it.id}','name', this.value)">` : `<span>${esc(it.name)}</span>`}
           ${UI.unlocked ? `<button class="rowdel" title="Delete bill" onclick="onDeleteItem('${it.id}')">🗑</button>`:''}
         </td>
-        <td>${UI.unlocked ? `<input class="textfield" style="width:92px;" value="${escAttr(it.due||'')}" oninput="scheduleSave()" onblur="renameItem('${it.id}','due', this.value)">` : esc(it.due||'—')}</td>
-        <td>${UI.unlocked ? `<input class="textfield" value="${escAttr(it.budget===null||it.budget===undefined?'':it.budget)}" oninput="scheduleSave()" onblur="renameItem('${it.id}','budget', this.value)">` : esc(it.budget||'—')}</td>
+        <td>${UI.unlocked ? `<input class="textfield" style="width:92px;" value="${escAttr(it.due||'')}" oninput="markDirty()" onblur="renameItem('${it.id}','due', this.value)">` : esc(it.due||'—')}</td>
+        <td>${UI.unlocked ? `<input class="textfield" value="${escAttr(it.budget===null||it.budget===undefined?'':it.budget)}" oninput="markDirty()" onblur="renameItem('${it.id}','budget', this.value)">` : esc(it.budget||'—')}</td>
         ${weeks.map(w=> `<td class="weekcol ${w.id===curWeekId?'current':''}">` + moneyCellHTML('item', it.id, w.id, it.weekly[w.id]) + `</td>`).join('')}
         <td id="itot-${it.id}" class="num">${fmtMoney(itemMonthlyTotal(it,weeks))}</td>
-        <td>${UI.unlocked ? `<input class="textfield" style="width:120px;" value="${escAttr(it.notes||'')}" oninput="scheduleSave()" onblur="renameItem('${it.id}','notes', this.value)">` : `<span style="color:var(--ink-soft);">${esc(it.notes||'')}</span>`}</td>
+        <td>${UI.unlocked ? `<input class="textfield" style="width:120px;" value="${escAttr(it.notes||'')}" oninput="markDirty()" onblur="renameItem('${it.id}','notes', this.value)">` : `<span style="color:var(--ink-soft);">${esc(it.notes||'')}</span>`}</td>
       </tr>`;
     });
     body += `<tr class="subtotal"><td>${esc(g.name)} total</td><td></td><td></td>
@@ -1410,11 +1433,9 @@ function onMoneyInput(el){
   if(v!=='' && isNaN(num)) return;
   setMoneyValue(el.dataset.kind, el.dataset.owner, el.dataset.week, num);
   patchTotals(UI.year, UI.month);
-  // Reset the save debounce on every keystroke (not just on blur) — without
-  // this, a save scheduled by leaving an earlier field could fire while
-  // you're still actively typing a new one, since nothing was resetting its
-  // timer. See the comment on SAVE_DEBOUNCE_MS in app_persist.js.
-  scheduleSave();
+  // Only mark dirty here. onMoneyBlur() schedules the actual save when you
+  // leave the cell, so the save indicator does not cycle while you type.
+  markDirty();
 }
 function onMoneyBlur(el){
   if(!UI.unlocked) return;
@@ -1871,6 +1892,21 @@ async function init(){
   UI.unlocked = isLocallyUnlocked();
   UI.lastSavedAt = STATE.savedAt;
   renderAll();
+  // A focused <input type="number"> treats the scroll wheel as increment /
+  // decrement, so scrolling the page with the pointer over a cell you just
+  // typed into silently rewrites the amount — on a bills ledger that is a
+  // wrong number nobody notices. Blur the field instead: the value stays put,
+  // it commits normally through onMoneyBlur, and the page scrolls as expected.
+  //
+  // Passive listener: we never call preventDefault, because suppressing the
+  // wheel here would make the page feel dead over the table.
+  document.addEventListener('wheel', (e)=>{
+    const el = document.activeElement;
+    if(el && el.type === 'number' && (el === e.target || el.contains(e.target))){
+      el.blur();
+    }
+  }, {passive:true});
+
   window.addEventListener('beforeunload', warnBeforeUnload);
   document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ stashPendingEdit(); flushPendingSave(); } });
   restorePendingEdit();
