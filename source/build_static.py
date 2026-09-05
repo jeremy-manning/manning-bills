@@ -124,13 +124,16 @@ for marker in LEAK_MARKERS:
         "SECURITY: built page contains %r — live household data must never be "
         "inlined into index.html. See the SEED DATA note above." % marker)
 
-import os
-os.makedirs('dist_static', exist_ok=True)
-open('dist_static/index.html', 'w').write(final_html)
-import shutil
-shutil.copyfile('supabase-config.js', 'dist_static/supabase-config.js')
-print("built dist_static/index.html:", len(final_html.encode('utf-8')), "bytes")
-print("copied dist_static/supabase-config.js")
+import os, shutil
+# Write straight to the repo's published folder. It used to land in
+# source/dist_static/, which meant the deployed copy one level up had to be
+# updated by hand — easy to forget, and a forgotten copy ships a stale page.
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dist_static')
+os.makedirs(OUT, exist_ok=True)
+open(os.path.join(OUT, 'index.html'), 'w').write(final_html)
+shutil.copyfile('supabase-config.js', os.path.join(OUT, 'supabase-config.js'))
+print("built", os.path.normpath(os.path.join(OUT,'index.html')) + ":", len(final_html.encode('utf-8')), "bytes")
+print("copied supabase-config.js")
 
 # ---------------------------------------------------------------------------
 # The original build also emitted dist_static/supabase_setup.sql here: a script

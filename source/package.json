@@ -1,16 +1,13 @@
 {
   "name": "build",
   "version": "1.0.0",
-  "description": "",
+  "description": "Manning household bills \u2014 build and tests",
   "main": "app_core.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node run_tests.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "chart.js": "^4.4.4",
-    "jsdom": "^30.0.1"
-  }
+  "dependencies": {}
 }
