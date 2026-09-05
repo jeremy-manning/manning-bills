@@ -43,8 +43,8 @@ section('An unsaved edit is still never lost');
   check(/flushPendingSave/.test(events), 'visibility change still flushes');
   const flush = /function flushPendingSave\(\)\{[\s\S]*?\n\}/.exec(
     fs.readFileSync(__dirname + '/app_persist_static.js','utf8'))[0];
-  check(/if\(!UI\.dirty\) return;/.test(flush) && /doSave\(\)/.test(flush),
-        'flushPendingSave saves a dirty ledger even with no timer pending');
+  check(/if\(!UI\.dirty\) return;/.test(flush) && /doSave\(true\)/.test(flush),
+        'flushPendingSave force-saves a dirty ledger even with no timer pending');
 }
 
 section('The save indicator cannot shift the toolbar');
@@ -74,3 +74,135 @@ section('Both fixes are actually in the built page');
 }
 
 report();
+
+// ---------------------------------------------------------------------------
+// Regression: typing must not trigger repeated saves.
+//
+// Reported from a real session: the indicator "fires quickly over and over"
+// while the cursor sits in a cell. Cause was markDirty() bumping editSeq,
+// which doSave()'s completion path reads as "more edits arrived during the
+// save" and answers with a 400ms follow-up — once per keystroke.
+// ---------------------------------------------------------------------------
+(async () => {
+const {load, check, section, report} = require('./test_harness');
+const LEDGER = {main:{version:3, data:{schema:1, savedAt:'2026-09-01T00:00:00.000Z', savedSeq:5,
+  years:{'2026':{months:{'09':{label:'September 2026',weeks:[],accounts:[],groups:[]}}}},
+  billsReference:[], backups:[], nextId:2}}};
+const settle = ms => new Promise(r => setTimeout(r, ms));
+
+section('Typing never triggers a write');
+{
+  const s = load({rows:LEDGER, session:{user:{email:'m@e.c'}}, member:true});
+  await s.boot();
+  const updatesBefore = s.__calls.update.length;
+
+  for(let i=0;i<10;i++){ s.markDirty(); await settle(5); }
+  await settle(700);                       // well past the 400ms follow-up window
+
+  check(s.__calls.update.length === updatesBefore, 'ten keystrokes produce zero writes');
+  check(s.saveTimer === null, 'no save timer is armed by typing');
+  check(s.UI.dirty === true, 'but the ledger is correctly marked unsaved');
+}
+
+section('A timer armed before typing does not fire mid-entry');
+{
+  const s = load({rows:LEDGER, session:{user:{email:'m@e.c'}}, member:true});
+  await s.boot();
+  s.SAVE_DEBOUNCE_MS = 30;
+  s.scheduleSave();          // as a blur would
+  s.markDirty();             // user starts typing in the next cell
+  await settle(120);         // the armed timer elapses
+
+  check(s.__calls.update.length === 0, 'the pending save is held while typing');
+  check(s.UI.dirty === true, 'the edit is still marked unsaved');
+}
+
+section('Leaving the field saves');
+{
+  const s = load({rows:LEDGER, session:{user:{email:'m@e.c'}}, member:true});
+  await s.boot();
+  s.markDirty();                       // typing
+  s.STATE.years['2026'].months['09'].label = 'edited';
+  s.scheduleSave(true);                // blur -> commit + immediate save
+  await settle(60);
+  check(s.__calls.update.length === 1, 'blur writes exactly once');
+  check(s.UI.dirty === false, 'and the ledger is marked saved');
+}
+
+section('An unsaved edit is still forced out when the page goes away');
+{
+  const s = load({rows:LEDGER, session:{user:{email:'m@e.c'}}, member:true});
+  await s.boot();
+  s.markDirty();                       // typing, nothing committed
+  s.STATE.years['2026'].months['09'].label = 'typed but not blurred';
+  s.flushPendingSave();                // beforeunload / tab hidden
+  await settle(60);
+  check(s.__calls.update.length === 1, 'the flush forces a write despite the typing hold');
+  check(s.__rows.main.data.years['2026'].months['09'].label === 'typed but not blurred',
+        'the in-progress edit reached the database');
+}
+
+report();
+})();
+
+// ---------------------------------------------------------------------------
+// Regression: a save must never re-trigger itself.
+//
+// doSave() used to call stashPendingEdit(), which commits the focused money
+// cell via onMoneyBlur() -> scheduleSave(). That advanced editSeq past the
+// mySeq captured at the top of doSave(), so finish() read it as "edits arrived
+// during the save" and armed a 400ms follow-up -- which saved, and stashed,
+// and armed again. An endless loop for as long as the cursor stayed in an
+// amount cell.
+// ---------------------------------------------------------------------------
+(async () => {
+const {load, check, section, report} = require('./test_harness');
+const fs = require('fs');
+const LEDGER = {main:{version:3, data:{schema:1, savedAt:'2026-09-01T00:00:00.000Z', savedSeq:5,
+  years:{'2026':{months:{'09':{label:'September 2026',weeks:[],accounts:[],groups:[]}}}},
+  billsReference:[], backups:[], nextId:2}}};
+const settle = ms => new Promise(r => setTimeout(r, ms));
+const persist = fs.readFileSync(__dirname + '/app_persist_static.js','utf8');
+
+section('The save path does not commit the focused field');
+{
+  const body = /async function doSave\(force\)\{[\s\S]*?\n\}/.exec(persist)[0]
+    .replace(/\/\*[\s\S]*?\*\//g,'')     // block comments
+    .replace(/^\s*\/\/.*$/gm,'');         // line comments (the NOTE names it)
+  check(!/stashPendingEdit\s*\(/.test(body),
+        'doSave() contains no call to stashPendingEdit()');
+  check(/stashPendingEdit/.test(fs.readFileSync(__dirname + '/app_events.js','utf8')),
+        'stashPendingEdit still exists for the unload paths');
+}
+
+section('One commit produces exactly one write, even with focus in a cell');
+{
+  const s = load({rows:LEDGER, session:{user:{email:'m@e.c'}}, member:true});
+  await s.boot();
+  // Reinstate the old hazard: anything in the save path that commits the
+  // focused cell would schedule another save. If doSave() ever calls it
+  // again, this loops and the write count explodes.
+  s.stashPendingEdit = () => { s.scheduleSave(); };
+  s.STATE.years['2026'].months['09'].label = 'edited';
+  s.scheduleSave(true);
+  await settle(1500);
+  check(s.__calls.update.length === 1,
+        `exactly one write (got ${s.__calls.update.length})`);
+  check(s.UI.dirty === false, 'and the ledger settles as saved');
+}
+
+section('The indicator settles instead of cycling');
+{
+  const s = load({rows:LEDGER, session:{user:{email:'m@e.c'}}, member:true});
+  await s.boot();
+  s.__calls.toasts.length = 0;
+  s.markDirty(); s.markDirty(); s.markDirty();
+  s.scheduleSave(true);
+  await settle(1200);
+  check(s.UI.dirty === false, 'dirty clears once the write lands');
+  check(s.UI.saving === false, 'and saving is no longer in progress');
+  check(s.__calls.update.length === 1, 'with a single write');
+}
+
+report();
+})();

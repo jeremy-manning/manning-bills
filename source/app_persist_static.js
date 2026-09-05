@@ -288,10 +288,14 @@ function rotateBackup(prevState){
 }
 
 var editSeq = 0;
+var uncommittedInput = false;  // characters typed since the last commit/blur
 var saveInFlight = false;
 var resaveNeeded = false;
 const SAVE_DEBOUNCE_MS = 3000;
 function scheduleSave(immediate){
+  // Every caller of scheduleSave is a commit point — a blur, an add, a
+  // delete — so whatever was being typed has now landed in STATE.
+  uncommittedInput = false;
   editSeq++;
   UI.dirty = true;
   renderSaveIndicator();
@@ -313,7 +317,12 @@ function scheduleSave(immediate){
  * consult UI.dirty, so a tab closed mid-edit still flushes.
  */
 function markDirty(){
-  editSeq++;
+  // Deliberately does NOT touch editSeq. That counter means "a save-worthy
+  // change was committed"; doSave()'s completion path compares it against the
+  // value captured when the save began and re-arms a 400ms follow-up if they
+  // differ. Bumping it per keystroke made every character re-arm that
+  // follow-up, firing a save about twice a second while typing.
+  uncommittedInput = true;
   UI.dirty = true;
   renderSaveIndicator();
 }
@@ -321,11 +330,17 @@ function markDirty(){
 function flushPendingSave(){
   if(!UI.dirty) return;
   if(saveTimer) clearTimeout(saveTimer);
-  doSave();
+  doSave(true);   // force: the page is going away, write even mid-edit
 }
 
-async function doSave(){
+async function doSave(force){
   if(!STATE) return;
+  // Hold off while the cursor is still in a field with unsaved keystrokes.
+  // A timer armed by the previous field's blur would otherwise elapse
+  // mid-entry and flip the indicator through Saving.../Saved while you type.
+  // The blur handler schedules the real save, so nothing is lost; `force` is
+  // for the unload and tab-hidden flushes, which must write regardless.
+  if(uncommittedInput && !force) return;
   if(saveInFlight){ resaveNeeded = true; return; }
   saveInFlight = true;
   const mySeq = editSeq;
@@ -337,7 +352,7 @@ async function doSave(){
   const finish = (savedOk)=>{
     saveInFlight = false;
     UI.saving = false;
-    if(savedOk && editSeq===mySeq){
+    if(savedOk && editSeq===mySeq && !uncommittedInput){
       UI.dirty = false;
       UI.lastSavedAt = STATE.savedAt;
     }
@@ -357,7 +372,20 @@ async function doSave(){
     return;
   }
   try{
-    stashPendingEdit();
+    // NOTE: stashPendingEdit() is deliberately NOT called here.
+    //
+    // It commits the focused money cell by calling onMoneyBlur(), which calls
+    // scheduleSave() -- so calling it from inside doSave() advanced editSeq
+    // past the mySeq captured above. finish() reads that as "more edits
+    // arrived during the save" and arms a 400ms follow-up, which saves, which
+    // stashes again: an endless save loop for as long as the cursor stays in
+    // an amount cell. That was the "indicator fires over and over" report.
+    //
+    // Nothing is lost by dropping it: onMoneyInput() already writes each
+    // keystroke into STATE via setMoneyValue(), so the in-progress value is
+    // in the payload regardless. stashPendingEdit() still runs on the paths
+    // it was written for -- beforeunload and visibilitychange -- where its
+    // sessionStorage snapshot is what actually matters.
     lastWrittenSeq = STATE.savedSeq;
     const nowIso = new Date().toISOString();
 
